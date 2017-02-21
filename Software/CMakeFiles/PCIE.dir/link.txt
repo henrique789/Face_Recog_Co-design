@@ -1,0 +1,2 @@
+/usr/bin/ar cr libPCIE.a  CMakeFiles/PCIE.dir/PCIE.c.o
+/usr/bin/ranlib libPCIE.a

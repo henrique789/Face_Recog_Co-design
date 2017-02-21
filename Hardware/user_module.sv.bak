@@ -1,0 +1,557 @@
+module user_module #(
+	parameter MASTER_ADDRESSWIDTH = 26 ,  // ADDRESSWIDTH specifies how many addresses the Master can address 
+	parameter SLAVE_ADDRESSWIDTH = 3 ,  // ADDRESSWIDTH specifies how many addresses the slave needs to be mapped to
+	parameter DATAWIDTH = 32 ,    // DATAWIDTH specifies the data width. Default 32 bits
+	parameter NUMREGS = 8 ,       // Number of Internal Registers for Custom Logic
+	parameter REGWIDTH = 32      // Data Width for the Internal Registers. Default 32 bits
+)	
+(	
+	input logic  clk,
+	input logic  reset_n,
+	
+	// Interface to Top Level
+	input logic rdwr_cntl,				// Control Read or Write to a slave module.
+	input logic n_action,				// Trigger the Read or Write. Additional control to avoid continuous transactions. Not a required signal. Can and should be removed for actual application.
+	output logic[15:0] debug_flag,
+	input logic add_data_sel,			// Interfaced to switch. Selects either Data or Address to be displayed on the Seven Segment Displays.
+	input logic [MASTER_ADDRESSWIDTH-1:0] rdwr_address,	// read_address if required to be sent from another block. Can be unused if consecutive reads are required.
+	output logic [DATAWIDTH-1:0] display_data,	
+
+	// Bus Slave Interface
+	input logic [SLAVE_ADDRESSWIDTH-1:0] slave_address,
+	input logic [DATAWIDTH-1:0] slave_writedata,
+	input logic  slave_write,
+	input logic  slave_read,
+	input logic  slave_chipselect,
+	//output logic  slave_readdatavalid, // These signals are for variable latency reads. 
+	//output logic slave_waitrequest,   // See the Avalon Specifications on how to use them.
+	output logic [DATAWIDTH-1:0] slave_readdata,
+
+	// Bus Master Interface
+	output logic [MASTER_ADDRESSWIDTH-1:0] master_address,
+	output logic [DATAWIDTH-1:0] master_writedata,
+	output logic  master_write,
+	output logic  master_read,
+	input logic [DATAWIDTH-1:0] master_readdata,
+	input logic  master_readdatavalid,
+	input logic  master_waitrequest
+);
+
+// Useful Constant Parameters
+parameter BYTEENABLEWIDTH = 4;  //Used to increment the address by 4
+parameter START_BYTE = 32'h00000053;
+parameter STOP_BYTE = 32'h00000012;
+parameter INI_WRITE_ADDR = 32'h08500000;
+parameter INI_READ_ADDR = 32'h08000000;
+
+parameter FACE_READ_BASE_ADDR = 32'h0800A100;
+parameter MEAN_READ_BASE_ADDR = 32'h08000000;
+parameter EGVEC_READ_BASE_ADDR = 32'h08FB9000;
+parameter PROJ_WRITE_BASE_ADDR = 32'h09F72000;
+parameter NUM_PIXELS_TOTAL = 10304;
+parameter NUM_PIXELS = 64;
+parameter EIGVECS_GROUP_SIZE = 8;
+parameter NUM_WEIGHTS = 400;
+parameter NUM_SAMPLES = 400;
+parameter SAMPLES_GROUP_SIZE = 2;//10;
+
+logic [MASTER_ADDRESSWIDTH-1:0] w_address;
+logic [MASTER_ADDRESSWIDTH-1:0] next_w_address;
+logic [MASTER_ADDRESSWIDTH-1:0] r_address;
+logic [MASTER_ADDRESSWIDTH-1:0] next_r_address;
+logic [DATAWIDTH-1:0] nextRead_data;
+logic [DATAWIDTH-1:0] read_data;
+logic [DATAWIDTH-1:0] wr_data;
+logic [DATAWIDTH-1:0] nextData;
+logic [NUMREGS-1:0][REGWIDTH-1:0] csr_registers;  // Command and Status Registers (CSR) for custom logic 
+typedef enum{
+				IDLE,
+				F_READ_REQ,
+				F_READ_DATA,
+				STORE_F,
+				F_READ_ADDR_INC,
+				M_READ_REQ,
+				M_READ_DATA,
+				STORE_M,
+				M_READ_ADDR_INC,
+				P_READ_REQ,
+				P_READ_DATA,
+				STORE_P,
+				P_READ_ADDR_INC,
+				CALC_R,
+				CALC_R_NEXT_PIXEL,
+
+				F_READ_REQ_F,
+				F_READ_DATA_F,
+				STORE_F_F,
+				F_READ_ADDR_INC_F,
+				M_READ_REQ_F,
+				M_READ_DATA_F,
+				STORE_M_F,
+				M_READ_ADDR_INC_F,
+				P_READ_REQ_F,
+				P_READ_DATA_F,
+				STORE_P_F,
+				P_READ_ADDR_INC_F,
+				CALC_R_F,
+				CALC_R_NEXT_PIXEL_F,
+
+				R_WRITE_LOAD,
+				R_WRITE,
+				R_WRITE_ADDR_INC,
+
+				SUB0,
+				SUB1,
+				SUB2,
+				SUB3,
+				SUB4,
+				SUB5,
+				SUB6,
+				SUB7,
+
+				MULT0,
+				MULT1,
+				MULT2,
+				MULT3,
+				MULT4,
+				MULT5,
+				MULT6,
+				MULT7,
+
+				ADD0,
+				ADD1,
+				ADD2,
+				ADD3,
+				ADD4,
+				ADD5,
+				ADD6,
+				ADD7,
+
+				ASSIGN_RESULT
+			} state_t;
+
+state_t state, nextState;
+
+
+reg [15:0] pixel_iter;
+reg [15:0] pixel_b;
+reg [15:0] pixel_e;
+
+
+reg [03:0] eigen_iter;
+reg [09:0] weight_iter;
+reg [09:0] sample_iter;
+
+reg [15:0] next_pixel_iter;
+reg [15:0] next_pixel_b;
+reg [15:0] next_pixel_e;
+
+reg [03:0] next_eigen_iter;
+reg [09:0] next_weight_iter;
+reg [09:0] next_sample_iter;
+
+reg proj_done;
+reg enable_face;
+reg enable_mean;
+reg enable_p;
+reg enable_r;
+reg clear_p;
+reg clear_r;
+reg clear_f;
+reg clear_m;
+reg enable_out_logic;
+
+top_levelu #(
+	.NUM_PIXELS(NUM_PIXELS),
+	.NUM_WEIGHTS(NUM_WEIGHTS),
+	.COLS_SIZE(8),
+	.NUM_SAMPLES(NUM_SAMPLES)
+	)TOP(
+	//input
+	.clk(clk),
+	.rst_n(reset_n),
+	.enable_face(enable_face),
+	.enable_mean(enable_mean),
+	.enable_p(enable_p),
+	.enable_r(enable_r),
+	.clear_p(clear_p),
+	.clear_r(clear_r),
+	.clear_f(clear_f),
+	.clear_m(clear_m),
+	.enable_out_logic(enable_out_logic),
+	.eigen_iter(eigen_iter),
+	.sample_iter(sample_iter),
+	.pixel_iter(pixel_iter),
+	.weight_iter(weight_iter),
+	.data_in(read_data),
+	//output
+	.done_flg(proj_done),
+	.data_out(wr_data)
+);
+
+// Slave side
+always_ff @ ( posedge clk ) begin
+	if(!reset_n) begin
+		slave_readdata <= 32'h0;
+		csr_registers <= '0;
+	end
+	else begin
+		if(slave_write && slave_chipselect && (slave_address >= 0) && (slave_address < NUMREGS)) begin
+			csr_registers[slave_address] <= slave_writedata;
+		end else if(slave_read && slave_chipselect  && (slave_address >= 0) && (slave_address < NUMREGS)) begin
+  	    	slave_readdata <= csr_registers[slave_address];
+		end else if (proj_done) begin
+		 	csr_registers[0] <= STOP_BYTE;
+		end
+	end
+end
+
+always_ff @ ( posedge clk ) begin
+	if (!reset_n) begin 
+		w_address <= INI_WRITE_ADDR;
+		r_address <= INI_READ_ADDR;
+		state <= IDLE;
+		read_data <= 32'hFEEDFEED;
+		pixel_iter <= '0;
+		eigen_iter <= '0;
+		weight_iter <= '0;
+		sample_iter <= '0;
+		pixel_b <= '0;
+		pixel_e <= NUM_PIXELS;
+	end else begin 
+		state <= nextState;
+		w_address <= next_w_address;
+		r_address <= next_r_address;
+		read_data <= nextRead_data;
+		pixel_iter <= next_pixel_iter;
+		eigen_iter <= next_eigen_iter;
+		weight_iter <= next_weight_iter;
+		sample_iter <= next_sample_iter;
+		pixel_b <= next_pixel_b;
+		pixel_e <= next_pixel_e;
+	end
+end
+
+always_comb begin
+	
+	master_write = 0;
+	master_read = 0;
+	master_writedata = 0;
+	master_address = 32'hdeadbeef;
+
+	enable_face = 0;
+	enable_mean = 0;
+	enable_p = 0;
+	enable_r = 0;
+	clear_p = 0;
+	clear_r = 0;
+	clear_f = 0;
+	clear_m = 0;
+	enable_out_logic = 0;
+
+	nextState = state;
+	next_w_address = w_address;
+	next_r_address = r_address;
+	next_pixel_iter = pixel_iter;
+	next_pixel_b = pixel_b;
+	next_pixel_e = pixel_e;
+	next_eigen_iter = eigen_iter;
+	next_weight_iter = weight_iter;
+	next_sample_iter = sample_iter;
+	nextRead_data = read_data;
+	debug_flag = 0;
+	flgStart = '0;
+	case (state)
+		IDLE: begin
+			next_w_address = INI_WRITE_ADDR;
+			next_r_address = INI_READ_ADDR;
+			next_pixel_iter = '0;
+			next_pixel_b = '0;
+			next_pixel_e = NUM_PIXELS;
+			next_eigen_iter = '0;
+			next_weight_iter = '0;
+			next_sample_iter = '0;
+			clear_r = 1;
+			debug_flag = 1;
+			if (csr_registers[0] == START_BYTE ) begin //slave_address = 0 for start/stop byte
+				nextState = M_READ_REQ;
+			end
+		end
+
+		M_READ_REQ: begin// means load begins here ----------------------------------------------
+			master_address = r_address;
+			master_read = 1;
+
+			if (!master_waitrequest) begin
+				nextState = M_READ_DATA;
+				debug_flag = 2;
+			end
+		end
+		M_READ_DATA: begin
+			if (master_readdatavalid) begin
+				nextRead_data = master_readdata;
+				debug_flag = 3;
+				nextState = STORE_M;
+			end
+		end
+		STORE_M: begin
+			enable_mean = 1;
+			debug_flag = 4;
+			nextState = M_READ_ADDR_INC;
+		end
+		M_READ_ADDR_INC: begin
+			if (pixel_iter < NUM_PIXELS-1) begin
+				next_r_address = r_address + BYTEENABLEWIDTH;
+				next_pixel_iter = pixel_iter + 1;
+				nextState = M_READ_REQ;
+			end else begin
+				next_r_address = FACE_READ_BASE_ADDR + (pixel_b*4) + (sample_iter*41216);
+				next_pixel_iter = '0;
+				nextState = F_READ_REQ;
+			end
+			debug_flag = 5;
+		end
+		
+		F_READ_REQ: begin// face load begins here --------------------------------------------------
+			master_address = r_address;
+			master_read = 1;
+
+			if (!master_waitrequest) begin
+				nextState = F_READ_DATA;
+				debug_flag = 6;
+			end
+		end
+		F_READ_DATA: begin
+			if (master_readdatavalid) begin
+				nextRead_data = master_readdata;
+				debug_flag = 7;
+				nextState = STORE_F;
+			end
+		end
+		STORE_F: begin
+			enable_face = 1;
+			debug_flag = 8;
+			nextState = F_READ_ADDR_INC;
+		end
+		F_READ_ADDR_INC: begin
+			if (pixel_iter < NUM_PIXELS-1) begin
+				next_r_address = r_address + BYTEENABLEWIDTH;
+				next_pixel_iter = pixel_iter + 1;
+				nextState = F_READ_REQ;
+			end else begin
+				next_r_address = EGVEC_READ_BASE_ADDR + (pixel_b*4);
+				next_pixel_iter = '0;
+				next_eigen_iter = '0;
+				nextState = P_READ_REQ;
+			end
+			debug_flag = 9;
+		end
+
+		P_READ_REQ: begin// eigenvectors load begins here ----------------------------------------------
+			master_address = r_address;
+			master_read = 1;
+
+			if (!master_waitrequest) begin
+				nextState = P_READ_DATA;
+				debug_flag = 10;
+			end
+		end
+		P_READ_DATA: begin
+			if (master_readdatavalid) begin
+				nextRead_data = master_readdata;
+				debug_flag = 11;
+				nextState = STORE_P;
+			end
+		end
+		STORE_P: begin
+			enable_p = 1;
+			debug_flag = 12;
+			nextState = P_READ_ADDR_INC;
+		end
+		P_READ_ADDR_INC: begin
+			if (pixel_iter < NUM_PIXELS-1) begin
+				next_r_address = r_address + BYTEENABLEWIDTH;
+				next_pixel_iter = pixel_iter + 1;
+				nextState = P_READ_REQ;
+			end else if (eigen_iter < EIGVECS_GROUP_SIZE-1) begin
+				next_r_address = EGVEC_READ_BASE_ADDR + (pixel_b*4) + ((eigen_iter + 1) * 41216);
+				next_pixel_iter = '0;
+				next_eigen_iter = eigen_iter + 1;
+				nextState = P_READ_REQ;
+			end else begin
+				next_pixel_iter = '0;
+				next_eigen_iter = '0;
+				nextState = CALC_R;
+			end
+			debug_flag = 13;
+		end
+		CALC_R: begin//------------------------------------------------
+			enable_r = 1;
+			debug_flag = 14;
+			nextState = SUB0;
+		end
+			
+			SUB0: begin
+				enable_r = 1;
+				nextState = SUB1;
+			end
+			SUB1: begin
+				enable_r = 1;
+				nextState = SUB2;
+			end
+			SUB2: begin
+				enable_r = 1;
+				nextState = SUB3;
+			end
+			SUB3: begin
+				enable_r = 1;
+				nextState = SUB4;
+			end
+			SUB4: begin
+				enable_r = 1;
+				nextState = SUB5;
+			end
+			SUB5: begin
+				enable_r = 1;
+				nextState = SUB6;
+			end
+			SUB6: begin
+				enable_r = 1;
+				nextState = SUB7;
+			end
+			SUB7: begin
+				enable_r = 1;
+				nextState = MULT0;
+			end
+
+			MULT0: begin
+				enable_r = 1;
+				nextState = MULT1;
+			end
+			MULT1: begin
+				enable_r = 1;
+				nextState = MULT2;
+			end
+			MULT2: begin
+				enable_r = 1;
+				nextState = MULT3;
+			end
+			MULT3: begin
+				enable_r = 1;
+				nextState = MULT4;
+			end
+			MULT4: begin
+				enable_r = 1;
+				nextState = ADD0;
+			end
+
+			ADD0: begin
+				enable_r = 1;
+				nextState = ADD1;
+			end
+			ADD1: begin
+				enable_r = 1;
+				nextState = ADD2;
+			end
+			ADD2: begin
+				enable_r = 1;
+				nextState = ADD3;
+			end
+			ADD3: begin
+				enable_r = 1;
+				nextState = ADD4;
+			end
+			ADD4: begin
+				enable_r = 1;
+				nextState = ADD5;
+			end
+			ADD5: begin
+				enable_r = 1;
+				nextState = ADD6;
+			end
+			ADD6: begin
+				enable_r = 1;
+				nextState = ADD7;
+			end
+			ADD7: begin
+				enable_r = 1;
+				nextState = ASSIGN_RESULT;
+			end
+
+			ASSIGN_RESULT: begin
+				enable_r = 1;
+				nextState = CALC_R_NEXT_PIXEL;
+			end
+
+		CALC_R_NEXT_PIXEL: begin
+			if (pixel_iter < NUM_PIXELS-1) begin
+				next_pixel_iter = pixel_iter + 1;
+				nextState = CALC_R;
+			end else if (weight_iter < NUM_WEIGHTS-EIGVECS_GROUP_SIZE-1) begin
+				next_pixel_iter = '0;
+				next_eigen_iter = '0;
+				next_weight_iter = weight_iter + EIGVECS_GROUP_SIZE;
+				next_r_address = EGVEC_READ_BASE_ADDR + (pixel_b*4) + ((weight_iter + EIGVECS_GROUP_SIZE) * 41216);
+				clear_p = 1;
+				nextState = P_READ_REQ;
+			end else if (pixel_e < NUM_PIXELS_TOTAL-NUM_PIXELS-1) begin
+				next_pixel_b = pixel_b + NUM_PIXELS;
+				next_pixel_e = pixel_e + NUM_PIXELS;
+				next_pixel_iter = '0;
+				next_weight_iter = '0;
+				clear_f = 1;
+				clear_m = 1;
+				clear_p = 1;
+				next_r_address = MEAN_READ_BASE_ADDR + (sample_iter * 41216) + (pixel_e*4);
+				nextState = M_READ_REQ;
+			end else begin
+				next_weight_iter = '0;
+				nextState = R_WRITE_LOAD;
+			end
+			debug_flag = 15;
+		end
+
+		R_WRITE_LOAD: begin //------------------------------------------
+			enable_out_logic = 1;
+			next_w_address = PROJ_WRITE_BASE_ADDR + (sample_iter * NUM_WEIGHTS * 4);
+			nextState = R_WRITE;
+			debug_flag = 16;
+		end
+		R_WRITE: begin
+			master_write = 1;
+			master_address =  w_address;
+			master_writedata = wr_data;
+
+			if (!master_waitrequest) begin
+				nextState = R_WRITE_ADDR_INC;
+				debug_flag = 17;
+			end
+		end
+		R_WRITE_ADDR_INC: begin
+			if (weight_iter < NUM_WEIGHTS-1) begin
+				next_w_address = w_address + BYTEENABLEWIDTH;
+				next_weight_iter = weight_iter + 1;
+				enable_out_logic = 1;
+				nextState = R_WRITE;
+			end else if (sample_iter < NUM_SAMPLES-1) begin
+				next_r_address = MEAN_READ_BASE_ADDR;
+				next_pixel_iter = '0;
+				next_pixel_b = '0;
+				next_pixel_e = NUM_PIXELS;
+				next_eigen_iter = '0;
+				next_weight_iter = '0;
+				next_sample_iter = sample_iter + 1;
+				clear_f = 1;
+				clear_m = 1;
+				clear_p = 1;
+				clear_r = 1;
+				nextState = M_READ_REQ;
+			end else begin
+				nextState = IDLE;
+			end
+			debug_flag = 18;
+		end
+	endcase
+end
+
+endmodule // user_module

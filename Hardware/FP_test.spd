@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<simPackage>
+ <file path="FP_test_sim/dspba_library_package.vhd" type="VHDL" />
+ <file path="FP_test_sim/dspba_library.vhd" type="VHDL" />
+ <file path="FP_test_sim/FP_test.vhd" type="VHDL" />
+ <topLevel name="FP_test" />
+ <deviceFamily name="cycloneivgx" />
+</simPackage>

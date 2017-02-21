@@ -1,0 +1,28 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/Altera/Documentos/face_recog/PCIE.c
+stdio.h
+-
+string.h
+-
+PCIE.h
+/home/Altera/Documentos/face_recog/PCIE.h
+dlfcn.h
+-
+
+/home/Altera/Documentos/face_recog/PCIE.h
+TERASIC_PCIE.h
+/home/Altera/Documentos/face_recog/TERASIC_PCIE.h
+
+/home/Altera/Documentos/face_recog/TERASIC_PCIE.h
+stdio.h
+-
+windows.h
+-
+

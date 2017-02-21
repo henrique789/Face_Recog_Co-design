@@ -1,0 +1,4 @@
+/home/Altera/Documentos/face_recog/CMakeFiles/PCIE.dir
+/home/Altera/Documentos/face_recog/CMakeFiles/apc.dir
+/home/Altera/Documentos/face_recog/CMakeFiles/autofaces.dir
+/home/Altera/Documentos/face_recog/CMakeFiles/main.dir

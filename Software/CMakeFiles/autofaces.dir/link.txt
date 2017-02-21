@@ -1,0 +1,2 @@
+/usr/bin/ar cr libautofaces.a  CMakeFiles/autofaces.dir/autofaces.cpp.o
+/usr/bin/ranlib libautofaces.a

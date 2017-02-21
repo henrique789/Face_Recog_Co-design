@@ -1,0 +1,28 @@
+Quartus II Archive log --	C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/master_example.qarlog
+
+Archive:	C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/master_example.qar
+Date:		Tue Feb 07 14:19:34 2017
+Quartus II 64-Bit		15.0.0 Build 145 04/22/2015 Patches 0.01we SJ Web Edition
+
+	=========== Files Selected: ===========
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.cmp.atm
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.cmp.cfm
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.cmp.dpi
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.cmp.hdbx
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.cmp.logdb
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.cmp.map.kpt
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.cmp.qxp_info
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.cmp.rcf
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.cmp.scidsc
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.map.atm
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.map.dpi
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.map.hdbx
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.map.logdb
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.map.map.kpt
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.map.qxp_info
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/master_example.map.scidsc
+C:/Users/henrique/Documents/de2i150-master/demo_advanced/hardware/db/master_example_tmp_qic_export/qic_export_file_list
+	======= Total: 17 files to archive =======
+
+	================ Status: ===============
+All files archived successfully.
